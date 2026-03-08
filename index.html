@@ -13,7 +13,20 @@
         <h1>Projects</h1>
         <p class="sub">Deployed apps with overview and URLs.</p>
       </header>
+      <section class="meta" aria-label="site statistics">
+        <p class="meta-item">Total Comments: <strong id="commentCount">0</strong></p>
+      </section>
       <section id="projects" class="grid"></section>
+      <section class="comments" aria-label="comments">
+        <h2>Comments</h2>
+        <p class="comment-note">Post as Anonymous. No signup required.</p>
+        <form id="commentForm" class="comment-form">
+          <label for="commentInput" class="sr-only">Comment</label>
+          <textarea id="commentInput" name="comment" rows="4" maxlength="300" placeholder="Write your comment..."></textarea>
+          <button type="submit" class="btn primary comment-submit">Post Comment</button>
+        </form>
+        <ul id="commentList" class="comment-list"></ul>
+      </section>
     </main>
     <script src="./script.js"></script>
   </body>
