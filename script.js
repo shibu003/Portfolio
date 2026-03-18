@@ -1,3 +1,12 @@
+// ============================================================
+// Supabase config — replace with your project values
+// ============================================================
+const SUPABASE_URL = "https://pyvfxoyzeicfwpnxnnjb.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5dmZ4b3l6ZWljZndwbnhubmpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MjE3MTYsImV4cCI6MjA4OTM5NzcxNn0.kylKrMPgngKDMblMZrhdwtfGxPvaEdzebXy2ePz7jbI";
+// ============================================================
+
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
 const projects = [
   {
     id: "shibubu",
@@ -41,28 +50,14 @@ const projects = [
   },
 ];
 
-const PROJECT_CLICKS_KEY = "project_clicks_v1";
-const COMMENTS_KEY = "portfolio_comments_v1";
-
 const root = document.getElementById("projects");
 const commentCountEl = document.getElementById("commentCount");
 const commentForm = document.getElementById("commentForm");
 const commentInput = document.getElementById("commentInput");
 const commentList = document.getElementById("commentList");
 
-function getStoredJson(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw);
-  } catch (_error) {
-    return fallback;
-  }
-}
-
-function saveJson(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
+let clickCounts = {};
+let comments = [];
 
 function getStatusClass(status) {
   if (status === "Live") return "status-live";
@@ -78,9 +73,6 @@ function escapeHtml(text) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
-
-let clickCounts = getStoredJson(PROJECT_CLICKS_KEY, {});
-let comments = getStoredJson(COMMENTS_KEY, []);
 
 function renderProjects() {
   root.innerHTML = projects
@@ -103,15 +95,11 @@ function renderProjects() {
     })
     .join("");
 
-  const projectLinks = root.querySelectorAll(".project-link");
-  projectLinks.forEach((link) => {
+  root.querySelectorAll(".project-link").forEach((link) => {
     link.addEventListener("click", () => {
       const projectId = link.getAttribute("data-project-id");
       if (!projectId) return;
-      const current = Number(clickCounts[projectId] || 0);
-      clickCounts[projectId] = current + 1;
-      saveJson(PROJECT_CLICKS_KEY, clickCounts);
-      renderProjects();
+      incrementClick(projectId);
     });
   });
 }
@@ -126,29 +114,89 @@ function renderComments() {
   commentList.innerHTML = comments
     .slice()
     .reverse()
-    .map((comment) => `
+    .map(
+      (comment) => `
       <li class="comment-item">
         <p class="comment-author">Anonymous</p>
         <p class="comment-text">${escapeHtml(comment.text)}</p>
-        <p class="comment-date">${new Date(comment.createdAt).toLocaleString()}</p>
+        <p class="comment-date">${new Date(comment.created_at).toLocaleString()}</p>
       </li>
-    `)
+    `
+    )
     .join("");
 }
 
-commentForm.addEventListener("submit", (event) => {
+async function incrementClick(projectId) {
+  // Optimistic UI update
+  clickCounts[projectId] = (clickCounts[projectId] || 0) + 1;
+  renderProjects();
+
+  const { error } = await supabaseClient.rpc("increment_click", {
+    p_project_id: projectId,
+  });
+  if (error) {
+    console.error("Failed to save click:", error.message);
+    // Revert on failure
+    clickCounts[projectId] = Math.max(0, (clickCounts[projectId] || 1) - 1);
+    renderProjects();
+  }
+}
+
+async function loadClickCounts() {
+  const { data, error } = await supabaseClient.from("click_counts").select("project_id, count");
+  if (error) {
+    console.error("Failed to load click counts:", error.message);
+    return;
+  }
+  clickCounts = {};
+  for (const row of data) {
+    clickCounts[row.project_id] = row.count;
+  }
+  renderProjects();
+}
+
+async function loadComments() {
+  const { data, error } = await supabaseClient
+    .from("comments")
+    .select("id, text, created_at")
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("Failed to load comments:", error.message);
+    return;
+  }
+  comments = data;
+  renderComments();
+}
+
+commentForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = commentInput.value.trim();
   if (!text) return;
 
-  comments.push({
-    text,
-    createdAt: Date.now(),
-  });
-  saveJson(COMMENTS_KEY, comments);
+  const submitBtn = commentForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+
+  const { data, error } = await supabaseClient
+    .from("comments")
+    .insert({ text })
+    .select()
+    .single();
+
+  submitBtn.disabled = false;
+
+  if (error) {
+    console.error("Failed to post comment:", error.message);
+    alert("コメントの投稿に失敗しました。しばらく経ってから再試行してください。");
+    return;
+  }
+
+  comments.push(data);
   commentInput.value = "";
   renderComments();
 });
 
+// Initial render with empty data, then load from DB
 renderProjects();
 renderComments();
+loadClickCounts();
+loadComments();
